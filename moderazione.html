@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Moderazione – Inquilino Sicuro</title>
+<link rel="stylesheet" href="stile.css">
+<style>
+  .nascosto { display: none !important; }
+  label { display: block; font-weight: 600; margin: 16px 0 6px; }
+  input { width: 100%; padding: 12px 14px; font-size: 17px; border: 1px solid var(--bordo);
+          border-radius: 12px; background: var(--sfondo); color: var(--testo); }
+  button { font: inherit; padding: 10px 16px; border-radius: 22px; border: 1px solid var(--bordo);
+           background: var(--carta); color: var(--testo); cursor: pointer; margin: 6px 6px 0 0; }
+  button.principale { background: var(--verde); color: #fff; border-color: var(--verde); }
+  button.pericolo { color: #c62828; border-color: #e7b4b4; }
+  button:disabled { opacity: .5; cursor: default; }
+  .scheda { border: 1px solid var(--bordo); border-radius: 16px; padding: 16px; margin: 16px 0; }
+  .scheda h3 { margin: 0 0 4px; }
+  .tenue { color: var(--tenue); font-size: 15px; }
+  .badge { display: inline-block; font-size: 13px; padding: 2px 10px; border-radius: 12px;
+           margin: 4px 6px 0 0; background: var(--sfondo); border: 1px solid var(--bordo); }
+  .badge.rosso { color: #c62828; border-color: #e7b4b4; }
+  .commento { white-space: pre-wrap; background: var(--sfondo); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+  .segnalazione { border-left: 3px solid #c62828; padding-left: 10px; margin: 6px 0; font-size: 15px; }
+  .messaggio { padding: 10px 14px; border-radius: 12px; background: var(--sfondo); margin: 12px 0; }
+  .barra { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<main>
+<header class="barra">
+  <a class="marchio" href="index.html">Inquilino Sicuro · Moderazione</a>
+  <button id="esci" class="nascosto">Esci</button>
+</header>
+
+<div id="messaggio" class="messaggio nascosto"></div>
+
+<!-- Accesso con email e codice -->
+<section id="accesso" class="nascosto">
+  <h1>Accedi</h1>
+  <p class="tenue">Usa l'email del tuo account moderatore. Ti mandiamo un codice (guarda anche nello spam).</p>
+  <label for="email">Email</label>
+  <input id="email" type="email" autocomplete="email">
+  <button id="inviaCodice" class="principale">Inviami il codice</button>
+  <div id="passoCodice" class="nascosto">
+    <label for="codice">Codice ricevuto via email</label>
+    <input id="codice" inputmode="numeric" autocomplete="one-time-code">
+    <button id="verifica" class="principale">Entra</button>
+  </div>
+</section>
+
+<!-- Elenco da controllare -->
+<section id="lavoro" class="nascosto">
+  <div class="barra">
+    <h1>Da controllare</h1>
+    <button id="aggiorna">Aggiorna</button>
+  </div>
+  <p class="tenue">Recensioni nuove, segnalate o nascoste automaticamente. Le più vecchie in alto:
+    rispondi alle segnalazioni entro 24 ore.</p>
+  <div id="elenco"></div>
+</section>
+
+<footer>
+  <a href="index.html">Supporto</a> · <a href="privacy.html">Privacy</a> · <a href="termini.html">Termini</a>
+</footer>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+<script>
+// Chiave pubblica (publishable): è la stessa dell'app, può stare in una pagina web.
+const db = supabase.createClient(
+  'https://wbyshhhwzazesruunywk.supabase.co',
+  'sb_publishable_p1t4aTt2L005hSgXrk1wzg_8a2RciXs'
+);
+
+const $ = (id) => document.getElementById(id);
+const mostra = (id, si) => $(id).classList.toggle('nascosto', !si);
+
+function avviso(testo) {
+  $('messaggio').textContent = testo;
+  mostra('messaggio', !!testo);
+}
+
+function el(tag, testo, classe) {
+  const e = document.createElement(tag);
+  if (testo != null) e.textContent = testo; // sempre testo, mai HTML: i contenuti vengono dagli utenti
+  if (classe) e.className = classe;
+  return e;
+}
+
+const TESTI = {
+  caparra: { restituita: 'Caparra restituita', in_parte: 'Caparra restituita in parte', trattenuta: 'Caparra non restituita' },
+  interessi: { restituiti: 'Interessi restituiti', non_restituiti: 'Interessi non restituiti', non_so: 'Interessi: non sa' },
+  difetti: { tutti: 'Difetti dichiarati tutti', in_parte: 'Difetti dichiarati in parte', nascosti: 'Difetti nascosti' },
+  motivo: { falsa: 'Falsa o inventata', offensiva: 'Offensiva o minacciosa', dati_personali: 'Dati personali',
+            spam: 'Pubblicità o spam', altro: 'Altro' },
+};
+
+// ---------- Accesso ----------
+$('inviaCodice').onclick = async () => {
+  const email = $('email').value.trim();
+  if (!email) return avviso('Scrivi la tua email.');
+  $('inviaCodice').disabled = true;
+  const { error } = await db.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+  $('inviaCodice').disabled = false;
+  if (error) return avviso('Codice non inviato: ' + error.message);
+  avviso('Codice inviato a ' + email + '. Controlla la posta (e lo spam).');
+  mostra('passoCodice', true);
+  $('codice').focus();
+};
+
+$('verifica').onclick = async () => {
+  const email = $('email').value.trim();
+  const token = $('codice').value.trim();
+  if (!token) return avviso('Scrivi il codice.');
+  $('verifica').disabled = true;
+  const { error } = await db.auth.verifyOtp({ email, token, type: 'email' });
+  $('verifica').disabled = false;
+  if (error) return avviso('Codice non valido o scaduto. Riprova.');
+  avviso('');
+  avvia();
+};
+
+$('esci').onclick = async () => { await db.auth.signOut(); location.reload(); };
+$('aggiorna').onclick = () => carica();
+
+// ---------- Elenco ----------
+async function avvia() {
+  const { data: { session } } = await db.auth.getSession();
+  mostra('esci', !!session);
+  if (!session) { mostra('accesso', true); mostra('lavoro', false); return; }
+  mostra('accesso', false);
+  const { data: moderatore, error } = await db.rpc('sono_moderatore');
+  if (error || !moderatore) {
+    avviso('Questo account non è un moderatore.');
+    return;
+  }
+  mostra('lavoro', true);
+  carica();
+}
+
+async function carica() {
+  const elenco = $('elenco');
+  elenco.replaceChildren(el('p', 'Caricamento…', 'tenue'));
+  const { data, error } = await db.rpc('moderazione_elenco');
+  if (error) { elenco.replaceChildren(el('p', 'Errore: ' + error.message)); return; }
+  if (!data.length) { elenco.replaceChildren(el('p', 'Niente da controllare. 🎉')); return; }
+  elenco.replaceChildren(...data.map(scheda));
+}
+
+function scheda(r) {
+  const s = el('div', null, 'scheda');
+  s.append(el('h3', r.indirizzo + ' · ' + r.citta));
+  s.append(el('div', 'Inquilino dal ' + r.anno_inizio + ' al ' + r.anno_fine +
+                     ' · scritta il ' + new Date(r.creata_il).toLocaleString('it-IT'), 'tenue'));
+
+  const badge = el('div');
+  if (r.stato === 'in_verifica') badge.append(el('span', 'Nuova, in verifica', 'badge'));
+  if (r.stato === 'pubblicata') badge.append(el('span', 'Pubblicata', 'badge'));
+  if (r.nascosta) badge.append(el('span', 'Nascosta per segnalazioni', 'badge rosso'));
+  if (r.segnalazioni.length) badge.append(el('span', r.segnalazioni.length + ' segnalazioni', 'badge rosso'));
+  if (r.verificata) badge.append(el('span', 'Verificata', 'badge'));
+  if (r.documento_path) badge.append(el('span', 'Documento caricato', 'badge'));
+  s.append(badge);
+
+  s.append(el('p', 'Proprietario: guasti ' + r.guasti + '/5, privacy ' + r.privacy +
+                   '/5, disponibilità ' + r.comunicazione + '/5 · ' + TESTI.caparra[r.caparra] +
+                   ' · ' + TESTI.interessi[r.interessi] + ' · ' +
+                   (r.consiglia_proprietario ? 'Lo consiglia' : 'Non lo consiglia')));
+  if (r.commento) s.append(el('div', r.commento, 'commento'));
+  s.append(el('p', 'Casa: umidità ' + r.umidita + '/5, riscaldamento ' + r.riscaldamento +
+                   '/5, silenziosità ' + r.rumore + '/5 · ' +
+                   (r.come_annuncio ? 'come l\'annuncio' : 'diversa dall\'annuncio')));
+  if (r.agenzia) {
+    s.append(el('p', 'Agenzia ' + r.agenzia + ': ' + TESTI.difetti[r.difetti] +
+                     ', professionalità ' + r.professionalita + '/5' +
+                     (r.costi_nascosti ? ', costi nascosti' : '') +
+                     (r.provvigione_chiara ? '' : ', provvigione poco chiara') +
+                     (r.annuncio_veritiero ? '' : ', annuncio non veritiero') + ' · ' +
+                     (r.consiglia_agenzia ? 'La consiglia' : 'Non la consiglia')));
+    if (r.commento_agenzia) s.append(el('div', r.commento_agenzia, 'commento'));
+  }
+
+  for (const g of r.segnalazioni) {
+    const riga = el('div', null, 'segnalazione');
+    riga.append(el('strong', TESTI.motivo[g.motivo] || g.motivo));
+    if (g.nota) riga.append(document.createTextNode(' — ' + g.nota));
+    s.append(riga);
+  }
+
+  const azioni = el('div');
+  if (r.documento_path) {
+    const doc = el('button', 'Apri documento');
+    doc.onclick = async () => {
+      const { data, error } = await db.storage.from('documenti').createSignedUrl(r.documento_path, 120);
+      if (error) return avviso('Documento non disponibile: ' + error.message);
+      window.open(data.signedUrl, '_blank', 'noopener');
+    };
+    azioni.append(doc);
+  }
+  const pubblica = el('button', r.stato === 'pubblicata' ? 'Lascia pubblicata' : 'Pubblica', 'principale');
+  pubblica.onclick = () => decidi(r, 'pubblica', s);
+  azioni.append(pubblica);
+  if (r.documento_path) {
+    const ver = el('button', 'Pubblica come verificata', 'principale');
+    ver.onclick = () => decidi(r, 'pubblica_verificata', s);
+    azioni.append(ver);
+  }
+  const rifiuta = el('button', r.stato === 'pubblicata' ? 'Togli' : 'Rifiuta', 'pericolo');
+  rifiuta.onclick = () => {
+    if (confirm('Togliere questa recensione? Nessuno la vedrà più.')) decidi(r, 'rifiuta', s);
+  };
+  azioni.append(rifiuta);
+  s.append(azioni);
+  return s;
+}
+
+async function decidi(r, azione, s) {
+  s.querySelectorAll('button').forEach((b) => (b.disabled = true));
+  const { error } = await db.rpc('moderazione_decidi', { p_recensione: r.id, p_azione: azione });
+  if (error) {
+    s.querySelectorAll('button').forEach((b) => (b.disabled = false));
+    return avviso('Operazione non riuscita: ' + error.message);
+  }
+  // Il documento serviva solo per il controllo: si cancella sempre.
+  if (r.documento_path) {
+    const { error: e2 } = await db.storage.from('documenti').remove([r.documento_path]);
+    if (e2) avviso('Decisione salvata, ma il documento non è stato cancellato: ' + e2.message);
+  }
+  s.remove();
+  if (!$('elenco').children.length) $('elenco').replaceChildren(el('p', 'Niente da controllare. 🎉'));
+}
+
+db.auth.onAuthStateChange((_evento, sessione) => mostra('esci', !!sessione));
+avvia();
+</script>
+</body>
+</html>
